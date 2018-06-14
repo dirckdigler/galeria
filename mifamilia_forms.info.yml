@@ -1,0 +1,9 @@
+name : Mifamilia forms
+type: module
+description : 'Mifamilia forms.'
+core: 8.x
+package: Mifamilia
+
+dependencies:
+  - youtube
+  - mifamilia:mifamilia

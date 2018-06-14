@@ -1,0 +1,19 @@
+base:
+  js:
+    js/base.js: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/jquery
+    - core/jquery.once
+    - core/underscore
+geolocations:
+  js:
+    js/geolocations.js: {}
+  dependencies:
+    - mifamilia_forms/base
+galeries:
+  js:
+    js/galeria.js: {}
+  dependencies:
+    - mifamilia_forms/base

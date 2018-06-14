@@ -1,0 +1,140 @@
+<?php
+
+use Drupal\field\Entity\FieldConfig;
+use Drupal\Core\Language\LanguageInterface;
+
+/**
+ * Implements hook_theme().
+ */
+function mifamilia_forms_theme($existing, $type, $theme, $path) {
+  return array(
+    'mifamilia_forms_create_tip' => array(
+      'render element' => 'form',
+      'template' => 'create-tip-form'
+    ),
+  );
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function mifamilia_forms_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+  if ($form_id == 'views_exposed_form') {
+    $view_names = array('geolocations', 'galeria');
+    $view = $form_state->getStorage('view');
+    $view_name = $view['view']->id();
+    if (in_array($view_name, $view_names)) {
+      $node_type = ($view_name == 'geolocations') ? 'geolocation' : 'galeria';
+      $settings = ($node_type == 'geolocation') ? 'geolocations' : 'galeries';
+      $options =_mifamilia_forms_query_cities($node_type);
+      $form['field_city_target_id']['#attributes']['class'] = array($node_type);
+      $form['#attached']['drupalSettings']['mifamilia_forms'] = array(
+        $settings  => array(
+          'cities' => $options,
+        ),
+      );
+      $form['#attached']['library'][] = "mifamilia_forms/" . $settings;
+    }
+  }
+}
+
+function _mifamilia_forms_query_cities($node_type) {
+  $options = array();
+  $cid = 'mifamilia_forms_' . $node_type . "_cities:" . \Drupal::languageManager()->getCurrentLanguage()->getId();
+  if ($cache = \Drupal::cache()->get($cid)) {
+    $options = $cache->data;
+  } else {
+    $query = db_select('taxonomy_term_field_data', 'ttfd')
+      ->fields('ttfd', array('tid', 'name'));
+    $query->innerJoin('node__field_city', 'nfc', 'nfc.field_city_target_id = ttfd.tid');
+    $query->innerJoin('node', 'node', 'node.nid = nfc.entity_id');
+    $query->innerJoin('node_field_data', 'nfd', 'nfd.nid = node.nid');
+    $query->condition('nfd.status', '1', '=');
+    $query->condition('node.type', $node_type, '=');
+    $query->distinct();
+    $query->orderBy('name');
+    $result = $query->execute();
+    while ($aux = $result->fetchAssoc()) {
+      $options[$aux['tid']] = array(
+        'tid'  => $aux['tid'],
+        'name' => $aux['name'],
+      );
+    }
+    \Drupal::cache()->set($cid, $options);
+  }
+  return $options;
+}
+
+/**
+ * Implements hook_token_info_alter().
+ *
+ * Alters and adds tokens for each youtube field.
+ */
+function mifamilia_forms_token_info_alter(&$data) {
+  // Get all youtube fields. Gather entity_type and bundle information.
+  $youtube_fields = array();
+  $entity_manager = \Drupal::service('entity.manager');
+  $field_map = $entity_manager->getFieldMap();
+
+  foreach ($field_map as $entity_type_name => $fields) {
+    foreach ($fields as $field_name => $field) {
+      foreach ($field['bundles'] as $bundle) {
+        if ($field['type'] == 'youtube') {
+          $youtube_fields[] = array(
+            'entity_type' => $entity_type_name,
+            'bundle' => $bundle,
+            'field_name' => $field_name,
+          );
+        }
+      }
+    }
+  }
+  foreach ($youtube_fields as $field) {
+    $field_info = FieldConfig::loadByName($field['entity_type'], $field['bundle'], $field['field_name']);
+    $field_label = $field_info->getLabel();
+
+    // Add one new token.
+    $data['tokens'][$field['entity_type']][$field['field_name'] . '__youtube_video_url_embed'] = array(
+      'name' => $field_label . t(": Video URL"),
+      'description' => t("The YouTube video field value's youtube.com embed iframe."),
+    );
+  }
+}
+
+/**
+ * Implements hook_tokens().
+ *
+ */
+function mifamilia_forms_tokens($type, $tokens, array $data = array(), array $options = array()) {
+  $replacements = array();
+
+  if ($type == 'node' && !empty($data['node'])) {
+    $node = $data['node'];
+    foreach ($tokens as $name => $original) {
+      if (!strpos($name, '__youtube_')) {
+        // This isn't a youtube token!
+        continue;
+      }
+      $token_pieces = explode('__', $name);
+      if (count($token_pieces) != 2) {
+        continue;
+      }
+      $field_name = $token_pieces[0];
+      $token_name = $token_pieces[1];
+      switch ($token_name) {
+        case 'youtube_video_url_embed':
+          $replacements[$original] = '';
+          $field = $node->$field_name;
+          if ($video_id = $field->video_id) {
+            $iframe = '<div class="youtube-container"><div class="youtube-container--responsive">';
+            $iframe .= '<iframe allowfullscreen="" frameborder="0" height="315" src="https://www.youtube.com/embed/' . $video_id . '" width="560"></iframe>';
+            $iframe .= '</div></div>';
+            $replacements[$original] = check_markup($iframe, 'full_html');
+          }
+          break;
+      }
+    }
+  }
+
+  return $replacements;
+}
